@@ -10,7 +10,7 @@ Base = declarative_base()
 # Definir el modelo
 class FinancialData(Base):
     __tablename__ = "financial_data"
-    id = Column(Integer, primary_key=True, index=True)
+    index = Column(Integer, primary_key=True, index=True)
     date = Column(DateTime)
     close = Column(Float)
     high = Column(Float)
@@ -52,3 +52,4 @@ def load_data_to_db(csv_file):
     df.to_sql("financial_data", engine, if_exists="replace", index=False)
 
 
+load_data_to_db("tickers_50.csv")
