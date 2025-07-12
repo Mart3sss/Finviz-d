@@ -10,7 +10,7 @@ app.title = "Dashboard Financiero Comparativo"
 
 # Cargar datos desde la API local
 try:
-    response = requests.get("http://localhost:8000/data")  # CAMBIA esto si tu backend usa otro host o puerto
+    response = requests.get("http://backend:8000/data")  # CAMBIA esto si tu backend usa otro host o puerto
     response.raise_for_status()
     data = response.json()
     df = pd.DataFrame(data)

@@ -7,7 +7,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./financial_data.db:/app/financial_data.db
+      - ./backend/financial_data.db:/app/financial_data.db
+    networks:
+      - finviznet
+
   frontend:
     build:
       context: .
@@ -16,3 +19,8 @@ services:
       - "8050:8050"
     depends_on:
       - backend
+    networks:
+      - finviznet
+
+networks:
+  finviznet:
