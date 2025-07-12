@@ -51,4 +51,4 @@ def load_data_to_db(csv_file):
     # Escribir en la base de datos
     df.to_sql("financial_data", engine, if_exists="replace", index=False)
 
-load_data_to_db("tickers_50.csv")
+
