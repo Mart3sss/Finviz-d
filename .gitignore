@@ -1,3 +1,5 @@
 .DS_Store
 financial_dashboard/finviz-env/
 financial_dashboard/backend/financial_data.db
+financial_dashboard/finviz-env/__pycache__/
+financial_dashboard/backend/tickers_50.csv
