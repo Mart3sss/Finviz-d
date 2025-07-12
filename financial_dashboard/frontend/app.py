@@ -3,56 +3,36 @@ from dash import dcc, html, Input, Output, dash_table
 import plotly.graph_objects as go
 import pandas as pd
 import requests
+import time
+
+# Función para obtener datos con reintentos
+def get_data_with_retries(url, retries=5, delay=3):
+    for i in range(retries):
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Intento {i+1} fallido para obtener datos de {url}: {e}")
+            time.sleep(delay)
+    raise Exception(f"No se pudo conectar a {url} después de {retries} intentos")
 
 # Inicializar la app
 app = dash.Dash(__name__)
 app.title = "Dashboard Financiero Comparativo"
 
-# Cargar datos desde la API local
-try:
-    response = requests.get("http://backend:8000/data")  # CAMBIA esto si tu backend usa otro host o puerto
-    response.raise_for_status()
-    data = response.json()
-    df = pd.DataFrame(data)
-
-    # Validación mínima
-    if "ticker" not in df.columns or "date" not in df.columns:
-        raise ValueError("Faltan columnas requeridas en los datos")
-except Exception as e:
-    print(f"Error al obtener datos: {e}")
-    df = pd.DataFrame()
-
-# Columnas financieras para comparación (excluye campos no numéricos o no útiles)
-value_columns = [
-    col for col in df.columns
-    if col not in ["index", "date", "ticker", "close", "open", "high", "low", "vol"]
-    and pd.api.types.is_numeric_dtype(df[col])
-] if not df.empty else []
-
-# Layout
+# Layout inicial con dropdowns vacíos
 app.layout = html.Div([
     html.H1("Dashboard Financiero Comparativo"),
 
     html.Div([
         html.Label("Seleccionar Ticker:"),
-        dcc.Dropdown(
-            id="ticker-selector",
-            options=[{"label": t, "value": t} for t in df["ticker"].unique()] if not df.empty else [],
-            value=df["ticker"].iloc[0] if not df.empty else None,
-            multi=False,
-            clearable=False
-        )
+        dcc.Dropdown(id="ticker-selector", multi=False, clearable=False)
     ], style={"width": "40%", "margin-bottom": "20px"}),
 
     html.Div([
         html.Label("Seleccionar Métrica a Comparar con el Precio:"),
-        dcc.Dropdown(
-            id="metric-selector",
-            options=[{"label": m, "value": m} for m in value_columns],
-            value=value_columns[0] if value_columns else None,
-            multi=False,
-            clearable=False
-        )
+        dcc.Dropdown(id="metric-selector", multi=False, clearable=False)
     ], style={"width": "40%", "margin-bottom": "20px"}),
 
     dcc.Graph(id="comparison-graph"),
@@ -60,36 +40,65 @@ app.layout = html.Div([
     html.H2("Datos Financieros del Ticker Seleccionado"),
     dash_table.DataTable(
         id="financial-table",
-        columns=[{"name": col, "id": col} for col in df.columns] if not df.empty else [],
-        data=[],
         page_size=10,
         style_table={"overflowX": "auto"},
         style_cell={"textAlign": "left", "padding": "5px"},
         style_header={"backgroundColor": "lightgrey", "fontWeight": "bold"}
-    )
+    ),
+
+    # Componente oculto para disparar la carga inicial de dropdowns
+    dcc.Store(id='data-store')
 ])
 
-# Callback para actualizar la gráfica y la tabla
+# Callback para cargar opciones de dropdown la primera vez
+@app.callback(
+    Output("ticker-selector", "options"),
+    Output("ticker-selector", "value"),
+    Output("metric-selector", "options"),
+    Output("metric-selector", "value"),
+    Output("data-store", "data"),
+    Input("ticker-selector", "value")  # input dummy para disparar al cargar
+)
+def load_dropdowns(_):
+    try:
+        data = get_data_with_retries("http://backend:8000/data")
+        df = pd.DataFrame(data)
+
+        tickers = [{"label": t, "value": t} for t in sorted(df["ticker"].unique())]
+
+        value_cols = [
+            col for col in df.columns
+            if col not in ["index", "date", "ticker", "close", "open", "high", "low", "vol"]
+            and pd.api.types.is_numeric_dtype(df[col])
+        ]
+        metrics = [{"label": m, "value": m} for m in value_cols]
+
+        # Guardamos los datos en Store para reutilizar
+        return tickers, tickers[0]["value"] if tickers else None, metrics, metrics[0]["value"] if metrics else None, data
+    except Exception as e:
+        print(f"Error cargando opciones dropdown: {e}")
+        # Si falla, devuelve vacíos para que no falle la app
+        return [], None, [], None, None
+
+# Callback para actualizar gráfica y tabla con datos almacenados en Store
 @app.callback(
     Output("comparison-graph", "figure"),
     Output("financial-table", "data"),
     Input("ticker-selector", "value"),
-    Input("metric-selector", "value")
+    Input("metric-selector", "value"),
+    Input("data-store", "data")
 )
-def update_comparison(ticker, metric):
-    if df.empty or not ticker or not metric:
+def update_comparison(ticker, metric, data):
+    if not ticker or not metric or data is None:
         return go.Figure(), []
 
+    df = pd.DataFrame(data)
     filtered_df = df[df["ticker"] == ticker].copy()
-
-    # Asegurar formato de fechas
     filtered_df["date"] = pd.to_datetime(filtered_df["date"])
     filtered_df.sort_values("date", inplace=True)
 
-    # Crear figura con doble eje Y
     fig = go.Figure()
 
-    # Línea del precio (eje Y1)
     fig.add_trace(go.Scatter(
         x=filtered_df["date"],
         y=filtered_df["close"],
@@ -100,7 +109,6 @@ def update_comparison(ticker, metric):
         hovertemplate="Fecha: %{x}<br>Precio: %{y:.2f}<extra></extra>"
     ))
 
-    # Línea de la métrica seleccionada (eje Y2)
     fig.add_trace(go.Scatter(
         x=filtered_df["date"],
         y=filtered_df[metric],
@@ -111,7 +119,6 @@ def update_comparison(ticker, metric):
         hovertemplate=f"Fecha: %{{x}}<br>{metric}: %{{y:.2f}}<extra></extra>"
     ))
 
-    # Configurar layout con doble eje Y
     fig.update_layout(
         title=f"{ticker}: Precio vs {metric}",
         xaxis=dict(title="Fecha"),
