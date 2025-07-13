@@ -1,2 +1,2 @@
 # Finviz-d
-Finanza Analysis project.
+Finance Analysis project.
